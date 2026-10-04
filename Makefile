@@ -1,16 +1,18 @@
 .PHONY: dev backend frontend stop test build setup
 
-# Запуск обоих серверов на переднем плане; Ctrl+C останавливает оба
+# Запуск обоих серверов на переднем плане; Ctrl+C останавливает оба.
+# Именно вложенный make -j2, а не «… & … & wait»: фоновые команды sh
+# получают SIGINT=ignore, и Ctrl+C убивал бы только make, оставляя
+# uvicorn и vite работать сиротами. Здесь оба сервера остаются в группе
+# процессов терминала и сигнал получают напрямую.
 dev:
-	cd backend && uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 &
-	cd frontend && npm run dev &
-	wait
+	$(MAKE) --no-print-directory -j2 backend frontend
 
 backend:
 	cd backend && uv run uvicorn app.main:app --host 127.0.0.1 --port 8000
 
 frontend:
-	cd frontend && npm run dev
+	cd frontend && npm run dev -- --strictPort
 
 # Остановка серверов, запущенных в фоне (по портам 8000 и 5173)
 stop:
