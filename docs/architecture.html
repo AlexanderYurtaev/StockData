@@ -1,0 +1,559 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Архитектура · moex-futures-positions</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    background: #f4f6fa; color: #16233a; display: flex; flex-direction: column;
+  }
+  body.dark { background: #0e1420; color: #e8eefb; color-scheme: dark; }
+
+  header {
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    padding: 10px 18px; border-bottom: 1px solid #e2e8f0; background: #ffffff;
+  }
+  body.dark header { background: #121a29; border-color: #22304a; }
+  .brand { display: flex; flex-direction: column; margin-right: 6px; }
+  .brand b { font-size: 15px; letter-spacing: .1px; }
+  .brand span { font-size: 11.5px; color: #64748b; }
+  body.dark .brand span { color: #8fa1bd; }
+
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip {
+    font-size: 12px; padding: 5px 10px; border-radius: 999px; cursor: pointer;
+    border: 1px solid #cbd5e1; background: #f8fafc; color: #334155; user-select: none;
+  }
+  .chip:hover { border-color: #94a3b8; }
+  .chip.active { background: #2563eb; border-color: #2563eb; color: #fff; }
+  body.dark .chip { background: #182233; border-color: #2c3c58; color: #c7d3e8; }
+  body.dark .chip.active { background: #2563eb; border-color: #3b82f6; color: #fff; }
+
+  .tools { margin-left: auto; display: flex; gap: 6px; align-items: center; }
+  .btn {
+    font-size: 12px; padding: 5px 9px; border-radius: 7px; cursor: pointer;
+    border: 1px solid #cbd5e1; background: #f8fafc; color: #334155;
+  }
+  .btn:hover { border-color: #94a3b8; }
+  body.dark .btn { background: #182233; border-color: #2c3c58; color: #c7d3e8; }
+
+  main { flex: 1; display: flex; min-height: 0; }
+  .stage { flex: 1; min-width: 0; position: relative; }
+  svg#diagram { width: 100%; height: 100%; display: block; cursor: grab; }
+  svg#diagram.panning { cursor: grabbing; }
+
+  aside {
+    width: 330px; flex: none; overflow-y: auto; padding: 16px;
+    border-left: 1px solid #e2e8f0; background: #ffffff;
+  }
+  body.dark aside { background: #121a29; border-color: #22304a; }
+  aside h2 { margin: 0 0 4px; font-size: 16px; }
+  aside .badge {
+    display: inline-block; font-size: 10.5px; font-weight: 600; letter-spacing: .4px;
+    text-transform: uppercase; padding: 2px 8px; border-radius: 999px; margin-bottom: 10px;
+  }
+  aside p { font-size: 13px; line-height: 1.55; margin: 6px 0; }
+  aside .files {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11px; background: #f1f5f9; border: 1px solid #e2e8f0; color: #334155;
+    padding: 7px 9px; border-radius: 8px; margin: 8px 0; word-break: break-all;
+  }
+  body.dark aside .files { background: #182233; border-color: #22304a; color: #c7d3e8; }
+  aside ul { margin: 8px 0; padding-left: 18px; }
+  aside li { font-size: 12.5px; line-height: 1.5; margin: 3px 0; }
+  aside .rel { font-size: 12px; color: #64748b; margin-top: 10px; line-height: 1.6; }
+  body.dark aside .rel { color: #8fa1bd; }
+  aside .rel b { color: inherit; }
+  aside h4 { margin: 12px 0 2px; font-size: 12px; text-transform: uppercase; letter-spacing: .5px; color: #64748b; }
+  body.dark aside h4 { color: #8fa1bd; }
+
+  @media (max-width: 980px) {
+    main { flex-direction: column; overflow: auto; }
+    .stage { min-height: 640px; }
+    aside { width: 100%; border-left: none; border-top: 1px solid #e2e8f0; }
+    body.dark aside { border-color: #22304a; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <b>moex-futures-positions · архитектура</b>
+    <span>Позиции по фьючерсам на акции и индексы — MOEX · кликните узел или сценарий</span>
+  </div>
+  <div class="chips" id="chips"></div>
+  <div class="tools">
+    <button class="btn" id="btnReset" title="Снять выделение">Сброс</button>
+    <button class="btn" id="btnFit" title="Сбросить масштаб">⟲ 100%</button>
+    <button class="btn" id="btnZoomOut">−</button>
+    <button class="btn" id="btnZoomIn">+</button>
+    <button class="btn" id="btnTheme" title="Светлая/тёмная тема">🌙</button>
+    <button class="btn" id="btnPng" title="Скачать схему как PNG">PNG</button>
+  </div>
+</header>
+<main>
+  <div class="stage"><svg id="diagram" viewBox="0 0 1560 980" role="img" aria-label="Схема архитектуры moex-futures-positions"></svg></div>
+  <aside id="panel"></aside>
+</main>
+
+<script>
+'use strict';
+
+/* ---------- палитры ---------- */
+const PALETTES = {
+  light: {
+    bg:'#f4f6fa', bandF:'#edf3fe', bandFs:'#d3e0f5', bandB:'#edfaf4', bandBs:'#cbeadd',
+    bandS:'#fdf6e9', bandSs:'#f0e0bd', bandE:'#fdf0f0', bandEs:'#f2cdcd',
+    bandTitle:'#7c8aa5', node:'#ffffff', nodeShadow:'rgba(22,35,58,.07)',
+    tF:'#3b82f6', tB:'#0ea371', tS:'#d97706', tE:'#ef4444',
+    title:'#16233a', sub:'#61708a', pillBg:'#f1f5f9', pillTx:'#5b6b84', pillBd:'#dbe3ee',
+    edge:'#93a5bb', label:'#64748b', amber:'#d97706', red:'#dc2626', blue:'#2563eb',
+    legend:'#ffffff', legends:'#e2e8f0', foot:'#94a3b8', dashedNote:'#a25'
+  },
+  dark: {
+    bg:'#0e1420', bandF:'#16223a', bandFs:'#24354f', bandB:'#13291f', bandBs:'#1f4237',
+    bandS:'#292113', bandSs:'#4a3b1c', bandE:'#2a1616', bandEs:'#4c2525',
+    bandTitle:'#5f7396', node:'#141c2b', nodeShadow:'rgba(0,0,0,.35)',
+    tF:'#3b82f6', tB:'#34d399', tS:'#f59e0b', tE:'#f87171',
+    title:'#e8eefb', sub:'#8fa1bd', pillBg:'#1a2436', pillTx:'#9db0cf', pillBd:'#2c3c58',
+    edge:'#3f516b', label:'#7c8db0', amber:'#fbbf24', red:'#f87171', blue:'#60a5fa',
+    legend:'#131a28', legends:'#22304a', foot:'#43536e', dashedNote:'#a25'
+  }
+};
+
+/* ---------- слои ---------- */
+const BANDS = [
+  { id:'L_f', x:40,  y:36,  w:1060, h:180, fill:'bandF',  stroke:'bandFs', title:'ФРОНТЕНД · VITE + REACT + TYPESCRIPT · LOCALHOST:5173' },
+  { id:'L_b', x:40,  y:250, w:1060, h:420, fill:'bandB',  stroke:'bandBs', title:'БЭКЕНД · FASTAPI · 127.0.0.1:8000' },
+  { id:'L_e', x:1120,y:250, w:400,  h:420, fill:'bandE',  stroke:'bandEs', title:'ВНЕШНИЕ API MOEX · ГРАНИЦА ДОВЕРИЯ', dashed:true },
+  { id:'L_s', x:40,  y:720, w:500,  h:150, fill:'bandS',  stroke:'bandSs', title:'ХРАНИЛИЩЕ · SQLITE' }
+];
+
+/* ---------- узлы ---------- */
+const NODES = [
+  { id:'F1', layer:'tF', x:70,  y:90,  w:230, h:80, title:'Страницы',
+    subs:[['PositionsPage · InstrumentPage'], ['MarketHistoryPage · AboutPage']],
+    desc:'Экраны сервиса: таблица открытых позиций (сортировка, поиск с дебаунсом, пагинация, избранное), страница инструмента с двумя графиками и агрегатами за период, «Динамика по рынку» и «О проекте».',
+    files:'frontend/src/pages/*.tsx · App.tsx',
+    facts:['Избранное — в localStorage, режим «★ Избранное» по умолчанию','Периоды: 14/30/60/90 дней, 1/3/5 лет','По умолчанию на графиках видны только физлица'] },
+  { id:'F2', layer:'tF', x:390, y:90,  w:290, h:80, title:'API-клиент',
+    subs:[['api/client.ts · useApi · types.ts', true], ['useFavorites → localStorage']],
+    desc:'Типизированный клиент /api/v1 (AbortController, хук useApi); модели ответов продублированы в TypeScript. Избранное хранится только в браузере. В dev-режиме запросы идут через прокси Vite.',
+    files:'frontend/src/api/*',
+    facts:['Бейдж источника: реальные данные MOEX или демо','Прокси в dev: /api → 127.0.0.1:8000'] },
+  { id:'F3', layer:'tF', x:710, y:90,  w:300, h:80, title:'Графики и карточки',
+    subs:[['HistoryCharts.tsx · recharts', true], ['SummaryCards.tsx · common.tsx', true]],
+    desc:'Оба графика истории: чистые позиции (лонг − шорт) с линией цены по правой оси и четыре серии лонг/шорт. Кликабельная легенда, длинные ряды свёрнуты в недельные/месячные точки, ось с годом при периоде > 110 дней.',
+    files:'frontend/src/components/*',
+    facts:['Легенда скрывает/показывает серии; скрытые — приглушены','Карточки сводки кликабельны → «Динамика по рынку»'] },
+
+  { id:'B1', layer:'tB', x:70,  y:300, w:280, h:84, title:'REST API /api/v1',
+    subs:[['endpoints: positions · instruments', true], ['meta · system · deps.py', true]],
+    desc:'Версионированный слой FastAPI: срез позиций (view=open|closed, фильтры, сортировка, пагинация), сводка по рынку, история инструмента и суммарная история рынка, справочники и health.',
+    files:'backend/app/api/v1/*',
+    facts:['GET /positions · /positions/summary','GET /positions/history?ticker=GAZR&days=90','GET /positions/totals-history · /instruments','GET /system/health · /meta'] },
+  { id:'B7', layer:'tB', x:400, y:300, w:240, h:84, title:'Конфигурация FP_*',
+    subs:[['core/config.py · backend/.env', true]],
+    desc:'Все параметры — переменные окружения с префиксом FP_: источник данных, TTL-кэши, параллелизм запросов, интервалы синхронизации, путь к базе. Файл backend/.env читается автоматически при старте.',
+    files:'backend/app/core/config.py · backend/.env',
+    facts:['FP_DATA_SOURCE: auto | moex | demo','FP_SYNC_INTERVAL=900 · FP_TOTAL_BACKFILL_DAYS=30','FP_FETCH_CONCURRENCY=8 · FP_HISTORY_DAYS_MAX=1825'] },
+  { id:'B6', layer:'tB', x:690, y:300, w:270, h:84, title:'Фоновая синхронизация',
+    subs:[['main.py · asyncio-задача', true], ['каждые FP_SYNC_INTERVAL = 900 с']],
+    desc:'При старте и по расписанию: свежий полный срез по всем 68 инструментам на последнюю опубликованную дату (список инструментов запрашивается на ту же дату) и прогрев дневных агрегатов за 30 торговых дней.',
+    files:'backend/app/main.py',
+    facts:['Полный срез = столько тикеров, сколько в списке на дату','Неполный срез добирается по тикерам','Агрегаты: FP_TOTAL_BACKFILL_DAYS = 30'] },
+  { id:'B2', layer:'tB', x:400, y:430, w:280, h:90, title:'DataService',
+    subs:[['services/data_service.py', true], ['цепочка провайдеров · фолбэк · TTL-кэш']],
+    desc:'Единая точка данных для всех эндпоинтов: ведёт цепочку «архив(MOEX) → MOEX → demo», обеспечивает фолбэк и «остывание» провайдеров после сбоев, кэширует срезы и историю с TTL, координирует цены ISS и архив.',
+    files:'backend/app/services/data_service.py · core/cache.py',
+    facts:['TTL: срез 1800 с, история 12 часов','Контракт провайдера — providers/base.py','Цепочка даёт фолбэк автоматически'] },
+  { id:'B3', layer:'tB', x:70,  y:440, w:250, h:76, title:'PositionService',
+    subs:[['services/position_service.py', true], ['чистые преобразования']],
+    desc:'Преобразования без состояния: сырой срез → строки таблицы с изменением к предыдущему дню; «закрыто/открыто» как неотрицательные части дневного изменения; агрегаты сводки по категориям.',
+    files:'backend/app/services/position_service.py',
+    facts:['Закрытие = неотрицательная часть снижения','Самопроверка: суммарный лонг = суммарному шорту'] },
+  { id:'B4', layer:'tB', x:460, y:560, w:250, h:84, title:'ArchiveProvider',
+    subs:[['providers/archive.py', true], ['кэширующий прокси над MOEX']],
+    desc:'Проверяет SQLite-архив и докачивает недостающие даты с биржи: даты — последовательно, инструменты внутри даты — параллельно. Помечает «пустые» даты с защитой от лага публикации; цены докачивает по «голове и хвосту» диапазона.',
+    files:'backend/app/providers/archive.py',
+    facts:['Пустая дата достоверна, только если позже есть данные','Самая свежая дата всегда перепроверяется','Проба даты: 2–3 ликвидных тикера (GAZR/SBRF/LKOH)'] },
+  { id:'B5', layer:'tB', x:70,  y:560, w:250, h:84, title:'DemoProvider',
+    subs:[['providers/demo.py', true], ['детерминированный фолбэк']],
+    desc:'Синтетические, но стабильные позиции и цены для работы без сети: подключается при FP_DATA_SOURCE=demo или когда биржа недоступна (после «остывания»). На нём же выполняется весь офлайн-набор тестов.',
+    files:'backend/app/providers/demo.py',
+    facts:['FP_DATA_SOURCE=demo — полностью офлайн','Используется при сбоях биржи (cooldown)'] },
+
+  { id:'S1', layer:'tS', x:70,  y:758, w:440, h:96, title:'SQLite-архив · backend/data/positions.db',
+    subs:[['storage/db.py', true], ['snapshots · daily_totals · prices', true], ['empty_dates · empty_total_dates', true]],
+    desc:'Единственное хранилище: срезы тикер×дата, дневные агрегаты рынка, цены закрытия актив×дата и маркеры «пустых» дат. Растёт сам (фоновая синхронизация) и лениво (бэкфилл при просмотре). Интерфейс PositionsDatabase переносим, например на PostgreSQL.',
+    files:'backend/app/storage/db.py · data/positions.db',
+    facts:['Сейчас: 23 170 точек · 1 273 даты · по 2026-10-02','Схема — только CREATE … IF NOT EXISTS','Выключается: FP_DB_ENABLED=0'] },
+
+  { id:'E1', layer:'tE', x:1150, y:310, w:340, h:110, title:'web.moex.com · Web ISS API',
+    subs:[['открытые позиции: лонг/шорт × физ/юр', false], ['по 68 фьючерсам на акции и индексы', false]],
+    pills:['лаг ~1 торговый день', 'троттлинг «пустыми»'],
+    desc:'Внутренний API страницы биржи «Открытые позиции» — единственный источник разбивки по физическим и юридическим лицам (в публичном ISS её нет). Требует User-Agent; при частых запросах отвечает валидным пустым телом — нужны ретраи с паузами.',
+    files:'backend/app/providers/moex.py',
+    facts:['Лаг публикации ~1 торговый день; праздники = пустые ответы','Троттлинг → ретраи 2× (0.6 / 1.2 с)','Безопасный параллелизм ≈ 8 запросов'] },
+  { id:'E2', layer:'tE', x:1150, y:500, w:340, h:110, title:'iss.moex.com · ISS MOEX',
+    subs:[['история торгов: цены закрытия', false], ['акции — доска TQBR · индексы — SNDX', false]],
+    pills:['пагинация start=100', 'без ключей, бесплатно'],
+    desc:'Официальный ISS: цены закрытия базовых активов и индексов (IMOEX, RTS). Пагинация по 100 строк (start += 100), значения NULL пропускаются. Соответствие «фьючерс → актив» — кураторский словарь underlying.py (SBRF→SBER, GAZR→GAZP, TRNF→TRNFP…).',
+    files:'backend/app/providers/iss.py · underlying.py',
+    facts:['У TATP и SFIN базового актива нет — линии цены не будет','Если доска TQBR пуста — запрос без указания доски'] }
+];
+
+/* ---------- связи ---------- */
+const EDGES = [
+  { id:'e1', a:'F1', b:'F3', sa:'b', sb:'t', d:'M185,170 V205 H860 V170', label:['рендерит',520,199], style:'plain',
+    desc:'Страницы рендерят графики (recharts) и карточки сводки; данные приходят параметрами из страниц.' },
+  { id:'e2', a:'F1', b:'F2', sa:'r', sb:'l', d:'M300,130 H390', label:['useApi',345,119], style:'plain',
+    desc:'Страницы запрашивают данные через типизированный клиент и хук useApi (AbortController).' },
+  { id:'e3', a:'F2', b:'B1', sa:'b', sb:'t', d:'M520,170 V225 H240 V300', label:['GET /api/v1/* · прокси :5173 → :8000',380,217], style:'plain',
+    desc:'HTTP-запросы к REST API. В dev-режиме Vite проксирует /api на 127.0.0.1:8000; собранный фронт (frontend/dist) раздаётся любым статическим сервером.' },
+  { id:'e4', a:'B1', b:'B3', sa:'b', sb:'t', d:'M140,384 V440', label:['преобразует',150,415,'start'], style:'plain',
+    desc:'Для таблицы и сводок эндпоинт вызывает чистые преобразования PositionService (изменения к пред. дню, «открыто/закрыто», агрегаты).' },
+  { id:'e5', a:'B1', b:'B2', sa:'b', sb:'l', d:'M240,384 V475 H400', label:['вызывает',250,432,'start'], style:'plain',
+    desc:'Эндпоинты не ходят к источникам напрямую — только через оркестратор DataService с фолбэком и кэшем.' },
+  { id:'e6', a:'B7', b:'B2', sa:'b', sb:'t', d:'M520,384 V430', label:['FP_*',530,412,'start'], style:'conf',
+    desc:'Источник данных, TTL-кэши, лимиты истории — всё конфигурируется переменными FP_* без изменения кода.' },
+  { id:'e7', a:'B7', b:'B6', sa:'r', sb:'l', d:'M640,342 H690', style:'conf',
+    desc:'Периодичность фоновой синхронизации и глубина прогрева задаются в конфигурации.' },
+  { id:'e8', a:'B6', b:'B2', sa:'b', sb:'r', d:'M825,384 V465 H680', label:['срез + прогрев 30 дн.',815,428,'end'], style:'plain',
+    desc:'Планировщик раз в 900 с вызывает DataService: полный срез по всем инструментам на последнюю дату и агрегаты за 30 торговых дней — архив растёт без открытых страниц.' },
+  { id:'e9', a:'B2', b:'B4', sa:'b', sb:'t', d:'M540,520 V560', label:['цепочка',550,545,'start'], style:'plain',
+    desc:'Первое звено цепочки провайдеров: ArchiveProvider — кэширующий прокси над реальным MOEX-провайдером.' },
+  { id:'e10', a:'B2', b:'B5', sa:'b', sb:'r', d:'M470,520 V602 H320', label:['фолбэк (demo)',395,592], style:'fall',
+    desc:'Если биржа недоступна (после «остывания» провайдера) или FP_DATA_SOURCE=demo — DataService отдаёт детерминированные синтетические данные.' },
+  { id:'e11', a:'B4', b:'E1', sa:'r', sb:'l', d:'M710,602 H1000 V365 H1150', label:['докачка недостающих дат · User-Agent',855,594], style:'ext',
+    desc:'Запросы к внутреннему API биржи при отсутствии даты в архиве. Даты обрабатываются последовательно, инструменты внутри даты — параллельно (≤ 8); праздники выявляются пробой 2–3 ликвидными тикерами.' },
+  { id:'e12', a:'B4', b:'S1', sa:'b', sb:'t', d:'M490,644 V758', label:['чтение/запись срезов',502,706,'start'], style:'store', both:true,
+    desc:'Срезы тикер×дата, дневные агрегаты и маркеры «пустых» дат. Повторные запросы отдаются из базы (~20 мс вместо ~3 с докачки).' },
+  { id:'e13', a:'B2', b:'E2', sa:'r', sb:'l', d:'M680,485 H1010 V555 H1150', label:['цены: TQBR / SNDX',845,477], style:'ext',
+    desc:'История цен закрытия базовых активов и индексов с пагинацией по 100 строк. Соответствие фьючерс → актив — словарь underlying.py.' },
+  { id:'e14', a:'B2', b:'S1', sa:'b', sb:'t', d:'M405,520 V758', label:['кэш цен',415,690,'start'], style:'store',
+    desc:'Цены закрытия сохраняются в таблицу prices; покрытие «головы и хвоста» диапазона проверяется отдельно, докачивается только недостающее.' }
+];
+
+/* ---------- сценарии ---------- */
+const FLOWS = [
+  { id:'positions', title:'Позиции (онлайн)',
+    edges:['e2','e3','e5','e9','e12','e11'], nodes:['F1','F2','B1','B2','B4','S1','E1'],
+    desc:'Открытие таблицы или страницы инструмента: /api/v1 → DataService → ArchiveProvider. Тёплая дата отдаётся из SQLite за ~20 мс; недостающее докачивается с web.moex.com и остаётся в архиве навсегда. Самая свежая дата всегда перепроверяется — из-за лага публикации (~1 торговый день).' },
+  { id:'prices', title:'Цены активов',
+    edges:['e2','e3','e5','e13','e14'], nodes:['F1','F2','B1','B2','E2','S1'],
+    desc:'Линия цены на графиках: DataService берёт цены закрытия из ISS MOEX (акции — доска TQBR, индексы — SNDX) и сохраняет в prices. Повторные запросы того же периода — из архива; индексным фьючерсам соответствует сам индекс (MIX/MXI → IMOEX, RTSM → RTS).' },
+  { id:'sync', title:'Фоновая синхронизация',
+    edges:['e7','e8','e9','e11','e12'], nodes:['B7','B6','B2','B4','E1','S1'],
+    desc:'При старте и каждые 900 секунд: полный срез по всем 68 инструментам на последнюю дату и агрегаты за 30 торговых дней. Срез считается полным, если число тикеров совпадает со списком инструментов на эту дату; неполный добирается по тикерам.' },
+  { id:'backfill', title:'Ленивый бэкфилл',
+    edges:['e2','e3','e5','e9','e11','e12'], nodes:['F1','F2','B1','B2','B4','E1','S1'],
+    desc:'Первый просмотр длинной истории: недостающие торговые дни докачиваются с биржи (даты последовательно, инструменты параллельно) и остаются в базе навсегда. 90 торговых дней: ~3 с при докачке → ~20 мс из архива. Длинные периоды сэмплируются и кэшируются.' },
+  { id:'fallback', title:'Фолбэк на demo',
+    edges:['e10'], nodes:['B2','B5'],
+    desc:'Биржа недоступна или FP_DATA_SOURCE=demo: DataService уходит на детерминированный демо-провайдер (синтетические позиции и цены). В интерфейсе загорается бейдж «демо»; на этом же провайдере офлайн выполняются все 19 автотестов.' }
+];
+
+const LEGEND = [
+  { style:'plain', text:'вызов / HTTP-запрос' },
+  { style:'conf',  text:'конфигурация FP_*' },
+  { style:'store', text:'чтение / запись SQLite', both:true },
+  { style:'ext',   text:'внешняя сеть (пунктир) · фолбэк — красный пунктир' }
+];
+
+const OVERVIEW = `
+  <h2>moex-futures-positions</h2>
+  <span class="badge" style="background:#e8f0fe;color:#2563eb">обзор</span>
+  <p>Веб-сервис «Позиции по фьючерсам на акции и индексы — MOEX»: открытые/закрытые позиции
+  физлиц и юрлиц по 68 фьючерсам + цены базовых активов, с SQLite-архивом истории.</p>
+  <h4>Как пользоваться схемой</h4>
+  <ul>
+    <li>Клик по узлу — назначение, файлы и ключевые факты.</li>
+    <li>Клик по сценарию в шапке — подсветка маршрута.</li>
+    <li>Колесо — зум, перетаскивание — панорама, PNG — экспорт.</li>
+  </ul>
+  <h4>Ключевые числа</h4>
+  <ul>
+    <li>68 инструментов · архив с 2021-09</li>
+    <li>23 170 точек · 1 273 даты в базе</li>
+    <li>бэкенд: 19 тестов · фронт: tsc без ошибок</li>
+  </ul>
+  <p class="rel">Схема соответствует коду репозитория на 2026-10-04. Данные — не инвестиционная рекомендация.</p>`;
+
+/* ---------- состояние ---------- */
+const state = { theme:'light', flow:null, sel:null, k:1, x:0, y:0 };
+const svg = document.getElementById('diagram');
+const panel = document.getElementById('panel');
+const byId = {}; NODES.forEach(n => byId[n.id] = n);
+
+/* ---------- построение SVG ---------- */
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function render(){
+  const P = PALETTES[state.theme];
+  svg.setAttribute('font-family', '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif');
+  let defs = '';
+  ['edge','amber','red','blue'].forEach(c => {
+    defs += `<marker id="arw-${c}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="${P[c==='edge'?'edge':c]}"/></marker>`;
+  });
+
+  let s = `<defs>${defs}</defs>`;
+  s += `<rect x="0" y="0" width="1560" height="980" fill="${P.bg}"/>`;
+  s += `<g id="world">`;
+
+  /* слои */
+  BANDS.forEach(b => {
+    s += `<rect x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" rx="14" fill="${P[b.fill]}"
+      stroke="${P[b.stroke]}" stroke-width="1.4" ${b.dashed?'stroke-dasharray="7 5"':''} pointer-events="none"/>`;
+    s += `<text x="${b.x+18}" y="${b.y+24}" font-size="10.5" font-weight="700" letter-spacing="1" fill="${P.bandTitle}">${esc(b.title)}</text>`;
+  });
+
+  /* связи */
+  EDGES.forEach(e => {
+    const col = e.style==='conf' ? P.edge : e.style==='store' ? P.amber : e.style==='ext' ? P.red : e.style==='fall' ? P.red : P.edge;
+    const dash = (e.style==='conf'||e.style==='ext'||e.style==='fall') ? 'stroke-dasharray="6 5"' : '';
+    const mk = e.style==='store' ? `marker-start="url(#arw-amber)" marker-end="url(#arw-amber)"` : `marker-end="url(#arw-${e.style==='ext'||e.style==='fall'?'red':'edge'})"`;
+    s += `<g class="edge" data-id="${e.id}">
+      <path d="${e.d}" fill="none" stroke="${P.bg}" stroke-width="9" stroke-opacity="0" pointer-events="stroke" class="hit"/>
+      <path class="line" d="${e.d}" fill="none" stroke="${col}" stroke-width="1.7" ${dash} ${mk}/>
+      <title>${esc((byId[e.a].title)+' → '+byId[e.b].title+'. '+e.desc)}</title></g>`;
+    if (e.label){
+      const [txt,lx,ly,anchor] = e.label;
+      s += `<text class="elabel" data-for="${e.id}" x="${lx}" y="${ly}" font-size="10.5" fill="${P.label}"
+        text-anchor="${anchor||'middle'}" paint-order="stroke" stroke="${P.bg}" stroke-width="4" stroke-linejoin="round">${esc(txt)}</text>`;
+    }
+  });
+
+  /* узлы */
+  NODES.forEach(n => {
+    s += `<g class="node" data-id="${n.id}" style="cursor:pointer">
+      <rect x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" rx="11" fill="${P.node}"
+        stroke="${P[n.layer]}" stroke-width="1.6" style="filter:drop-shadow(0 2px 5px ${P.nodeShadow})"/>
+      <line x1="${n.x}" y1="${n.y+14}" x2="${n.x}" y2="${n.y+n.h-14}" stroke="${P[n.layer]}" stroke-width="3" stroke-linecap="round"/>
+      <text x="${n.x+16}" y="${n.y+25}" font-size="13.5" font-weight="650" fill="${P.title}">${esc(n.title)}</text>`;
+    const baseY = n.y + 44;
+    (n.subs||[]).forEach((sub,i) => {
+      const mono = sub[1];
+      s += `<text x="${n.x+16}" y="${baseY+i*15}" font-size="${mono?10:10.5}" fill="${P.sub}"
+        font-family="${mono?'ui-monospace,Menlo,Consolas,monospace':'inherit'}">${esc(sub[0])}</text>`;
+    });
+    (n.pills||[]).forEach((p,i) => {
+      const w = p.length*5.4+14, px = n.x+16 + (i===1 ? (n.pills[0].length*5.4+14)+8 : 0);
+      s += `<rect x="${px}" y="${n.y+n.h-22}" width="${w}" height="16" rx="8" fill="${P.pillBg}" stroke="${P.pillBd}"/>
+        <text x="${px+w/2}" y="${n.y+n.h-10.5}" font-size="9.5" fill="${P.pillTx}" text-anchor="middle">${esc(p)}</text>`;
+    });
+    s += `<title>${esc(n.title+'. '+n.desc)}</title></g>`;
+  });
+
+  /* легенда */
+  s += `<g pointer-events="none">
+    <rect x="580" y="720" width="510" height="150" rx="14" fill="${P.legend}" stroke="${P.legends}"/>
+    <text x="600" y="746" font-size="10.5" font-weight="700" letter-spacing="1" fill="${P.bandTitle}">ЛЕГЕНДА</text>`;
+  LEGEND.forEach((l,i) => {
+    const y = 770 + i*24;
+    const col = l.style==='store' ? P.amber : l.style==='ext' ? P.red : P.edge;
+    const dash = (l.style==='conf'||l.style==='ext') ? 'stroke-dasharray="6 5"' : '';
+    const mk = l.both ? 'marker-start="url(#arw-amber)" marker-end="url(#arw-amber)"' : `marker-end="url(#arw-${l.style==='ext'?'red':'edge'})"`;
+    s += `<line x1="600" y1="${y}" x2="650" y2="${y}" stroke="${col}" stroke-width="1.7" ${dash} ${mk}/>
+      <text x="662" y="${y+3.5}" font-size="11" fill="${P.sub}">${esc(l.text)}</text>`;
+  });
+  s += `<text x="600" y="856" font-size="11" fill="${P.sub}">Пунктирная рамка — граница доверия: внешние API биржи</text></g>`;
+
+  /* футер */
+  s += `<text x="40" y="948" font-size="11" fill="${P.foot}">Схема соответствует коду репозитория на 2026-10-04 · backend: uv run pytest (19) · frontend: tsc -b · make dev — запуск, make stop — гасит осиротевшие процессы</text>`;
+
+  s += `</g>`;
+  svg.innerHTML = s;
+  applyView(); applyHighlight(); bindSvg();
+}
+
+/* ---------- подсветка ---------- */
+function applyHighlight(){
+  const P = PALETTES[state.theme];
+  const flow = state.flow ? FLOWS.find(f=>f.id===state.flow) : null;
+  const onE = new Set(flow ? flow.edges : []), onN = new Set(flow ? flow.nodes : []);
+  const sel = state.sel;
+  svg.querySelectorAll('g.node').forEach(g => {
+    const id = g.dataset.id;
+    const dim = flow && !onN.has(id);
+    g.style.opacity = dim ? .16 : 1;
+    const r = g.querySelector('rect');
+    if (!r.dataset.st) r.dataset.st = r.getAttribute('stroke');
+    const isSel = !flow && sel && sel.type==='node' && sel.id===id;
+    r.setAttribute('stroke-width', isSel ? 2.8 : 1.6);
+    r.setAttribute('stroke', isSel ? P.blue : r.dataset.st);
+  });
+  svg.querySelectorAll('g.edge').forEach(g => {
+    const on = flow ? onE.has(g.dataset.id) : true;
+    const isSel = !flow && sel && sel.type==='edge' && sel.id===g.dataset.id;
+    const line = g.querySelector('.line');
+    g.style.opacity = (flow && !on) ? .14 : 1;
+    if (!line.dataset.st) line.dataset.st = line.getAttribute('stroke');
+    if (!line.dataset.mk) line.dataset.mk = line.getAttribute('marker-end') || '';
+    if (!line.dataset.mks) line.dataset.mks = line.getAttribute('marker-start') || '';
+    const active = (flow && on) || isSel;
+    line.setAttribute('stroke-width', active ? 3 : 1.7);
+    line.setAttribute('stroke', active ? P.blue : line.dataset.st);
+    if (active){
+      line.setAttribute('marker-end', 'url(#arw-blue)');
+      if (line.dataset.mks) line.setAttribute('marker-start', 'url(#arw-blue)');
+    } else {
+      if (line.dataset.mk) line.setAttribute('marker-end', line.dataset.mk);
+      else line.removeAttribute('marker-end');
+      if (line.dataset.mks) line.setAttribute('marker-start', line.dataset.mks);
+    }
+  });
+  svg.querySelectorAll('text.elabel').forEach(t => {
+    const on = flow ? onE.has(t.dataset.for) : true;
+    t.style.opacity = (flow && !on) ? .14 : 1;
+    t.setAttribute('fill', (flow && on) ? P.blue : P.label);
+  });
+}
+
+/* ---------- панель ---------- */
+function showPanel(html){ panel.innerHTML = html; }
+
+function selectNode(id){
+  state.sel = {type:'node', id}; state.flow = null; syncChips();
+  const n = byId[id];
+  const L = {tF:'фронтенд', tB:'бэкенд', tS:'хранилище', tE:'внешний API'}[n.layer];
+  const col = PALETTES[state.theme][n.layer];
+  const inc = EDGES.filter(e=>e.b===id), out = EDGES.filter(e=>e.a===id);
+  showPanel(`
+    <h2>${esc(n.title)}</h2>
+    <span class="badge" style="background:${col}22;color:${col};border:1px solid ${col}55">${L}</span>
+    <p>${esc(n.desc)}</p>
+    <h4>Файлы</h4><div class="files">${esc(n.files)}</div>
+    <h4>Факты</h4><ul>${n.facts.map(f=>`<li>${esc(f)}</li>`).join('')}</ul>
+    ${inc.length?`<h4>Связи</h4><p class="rel">${inc.map(e=>`◀ ${esc(byId[e.a].title)}`).join('<br>')}${out.length?'<br>':''}${out.map(e=>`${esc(byId[e.b].title)} ▶`).join('<br>')}</p>`:''}
+  `);
+  applyHighlight();
+}
+
+function selectFlow(id){
+  state.flow = id; state.sel = null; syncChips();
+  const f = FLOWS.find(x=>x.id===id);
+  showPanel(`
+    <h2>Сценарий: ${esc(f.title)}</h2>
+    <span class="badge" style="background:#2563eb22;color:#2563eb;border:1px solid #2563eb55">маршрут</span>
+    <p>${esc(f.desc)}</p>
+    <h4>Участники</h4>
+    <p class="rel">${f.nodes.map(nid=>esc(byId[nid].title)).join(' → ')}</p>
+  `);
+  applyHighlight();
+}
+
+function resetSel(){ state.sel=null; state.flow=null; syncChips(); showPanel(OVERVIEW); applyHighlight(); }
+
+/* ---------- зум/панорама ---------- */
+function applyView(){
+  svg.querySelector('#world').setAttribute('transform', `translate(${state.x},${state.y}) scale(${state.k})`);
+}
+function svgPoint(ev){
+  const m = svg.getScreenCTM().inverse();
+  const q = new DOMPoint(ev.clientX, ev.clientY).matrixTransform(m);
+  return { x:q.x, y:q.y };
+}
+function zoomAt(f, pt){
+  const k2 = Math.min(4, Math.max(.5, state.k*f));
+  const wx = (pt.x-state.x)/state.k, wy = (pt.y-state.y)/state.k;
+  state.x = pt.x - wx*k2; state.y = pt.y - wy*k2; state.k = k2; applyView();
+}
+function bindSvg(){
+  svg.onwheel = ev => { ev.preventDefault(); zoomAt(Math.exp(-ev.deltaY*0.0012), svgPoint(ev)); };
+  let drag = null;
+  svg.onpointerdown = ev => {
+    if (ev.target.closest('g.node') || ev.target.closest('g.edge')) return;
+    const pt = svgPoint(ev);
+    drag = { pt, x:state.x, y:state.y };
+    svg.classList.add('panning'); svg.setPointerCapture(ev.pointerId);
+  };
+  svg.onpointermove = ev => {
+    if (!drag) return;
+    const pt = svgPoint(ev);
+    state.x = drag.x + (pt.x - drag.pt.x);
+    state.y = drag.y + (pt.y - drag.pt.y);
+    applyView();
+  };
+  svg.onpointerup = svg.onpointercancel = () => { drag=null; svg.classList.remove('panning'); };
+
+  svg.querySelectorAll('g.node').forEach(g => {
+    g.addEventListener('click', ev => { ev.stopPropagation(); selectNode(g.dataset.id); });
+  });
+  svg.querySelectorAll('g.edge').forEach(g => {
+    g.addEventListener('click', ev => {
+      ev.stopPropagation();
+      const e = EDGES.find(x=>x.id===g.dataset.id);
+      state.sel = {type:'edge', id:e.id}; state.flow = null; syncChips(); applyHighlight();
+      showPanel(`
+        <h2>${esc(byId[e.a].title)} → ${esc(byId[e.b].title)}</h2>
+        <span class="badge" style="background:#33415518;color:#64748b;border:1px solid #94a3b855">связь</span>
+        <p>${esc(e.desc)}</p>`);
+    });
+  });
+}
+
+/* ---------- шапка ---------- */
+const chipsBox = document.getElementById('chips');
+FLOWS.forEach(f => {
+  const c = document.createElement('div');
+  c.className = 'chip'; c.textContent = f.title; c.dataset.flow = f.id;
+  c.onclick = () => state.flow===f.id ? resetSel() : selectFlow(f.id);
+  chipsBox.appendChild(c);
+});
+function syncChips(){
+  chipsBox.querySelectorAll('.chip').forEach(c => c.classList.toggle('active', c.dataset.flow===state.flow));
+}
+
+document.getElementById('btnReset').onclick = resetSel;
+document.getElementById('btnFit').onclick = () => { state.k=1; state.x=0; state.y=0; applyView(); };
+document.getElementById('btnZoomIn').onclick  = () => zoomAt(1.25, {x:780,y:490});
+document.getElementById('btnZoomOut').onclick = () => zoomAt(.8,  {x:780,y:490});
+document.getElementById('btnTheme').onclick = function(){
+  state.theme = state.theme==='light' ? 'dark' : 'light';
+  document.body.classList.toggle('dark', state.theme==='dark');
+  this.textContent = state.theme==='light' ? '🌙' : '☀️';
+  render();
+};
+
+document.getElementById('btnPng').onclick = () => {
+  const P = PALETTES[state.theme];
+  const clone = svg.cloneNode(true);
+  clone.querySelector('#world').setAttribute('transform','');
+  clone.setAttribute('width', 1560); clone.setAttribute('height', 980);
+  const xml = new XMLSerializer().serializeToString(clone);
+  const url = URL.createObjectURL(new Blob([xml], {type:'image/svg+xml;charset=utf-8'}));
+  const img = new Image();
+  img.onload = () => {
+    const cv = document.createElement('canvas');
+    cv.width = 3120; cv.height = 1960;
+    const ctx = cv.getContext('2d');
+    ctx.fillStyle = P.bg; ctx.fillRect(0,0,cv.width,cv.height);
+    ctx.drawImage(img, 0, 0, cv.width, cv.height);
+    URL.revokeObjectURL(url);
+    const a = document.createElement('a');
+    a.download = 'moex-futures-positions-architecture.png';
+    a.href = cv.toDataURL('image/png'); a.click();
+  };
+  img.src = url;
+};
+
+/* ---------- старт ---------- */
+window.addEventListener('hashchange', () => {
+  const m = location.hash.match(/flow=([a-z]+)/);
+  if (m && FLOWS.some(f=>f.id===m[1])) selectFlow(m[1]); else resetSel();
+});
+const m0 = location.hash.match(/flow=([a-z]+)/);
+if (m0 && FLOWS.some(f=>f.id===m0[1])) state.flow = m0[1];
+if (location.hash.includes('dark')) { state.theme='dark'; document.body.classList.add('dark');
+  document.getElementById('btnTheme').textContent='☀️'; }
+render();
+if (state.flow) selectFlow(state.flow); else showPanel(OVERVIEW);
+</script>
+</body>
+</html>
